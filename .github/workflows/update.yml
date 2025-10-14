@@ -1,0 +1,100 @@
+name: Update packages
+on:
+  schedule:
+    # Run monday and friday at 2 AM UTC
+    - cron: "0 2 * * 1,5"
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: 'Packages to update (semicolon-separated). Format: "pkg" or "pkg 1.0 2.0". Defaults to PACKAGES var.'
+        required: false
+        type: string
+      skip-if-pr-exists:
+        description: Skip if PR exists
+        type: boolean
+        required: false
+        default: true
+      nixpkgs-review:
+        description: Run nixpkgs-review
+        required: false
+        type: boolean
+        default: true
+      cve-report:
+        description: Generate CVE report
+        required: false
+        type: boolean
+        default: false
+
+env:
+  # Configurable via repository variables
+  PACKAGES: ${{ vars.PACKAGES || '' }}
+  SKIP_IF_PR_EXISTS: ${{ vars.SKIP_IF_PR_EXISTS || 'true' }}
+  NIXPKGS_REVIEW: ${{ vars.NIXPKGS_REVIEW || 'true' }}
+  CVE_REPORT: ${{ vars.CVE_REPORT || 'false' }}
+  NIXPKGS_REPO: ${{ vars.NIXPKGS_REPO || 'NixOS/nixpkgs' }}
+
+jobs:
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    outputs:
+      packages: ${{ steps.parse.outputs.packages }}
+      skip-if-pr-exists: ${{ steps.parse.outputs.skip-if-pr-exists }}
+      nixpkgs-review: ${{ steps.parse.outputs.nixpkgs-review }}
+      cve-report: ${{ steps.parse.outputs.cve-report }}
+      nixpkgs-repo: ${{ steps.parse.outputs.nixpkgs-repo }}
+
+    steps:
+      - name: Parse packages
+        id: parse
+        run: |
+          packages="${{ inputs.packages || env.PACKAGES }}"
+
+          # Convert to JSON array (handles both full specs and package names)
+          matrix=$(echo "$packages" | tr ';' '\n' | jq -R -s -c 'split("\n") | map(select(length > 0))')
+
+          [ "$matrix" == "[]" ] || [ -z "$matrix" ] && {
+            echo "::warning::No packages to update"
+            matrix='[""]'
+          }
+
+          # Set outputs based on trigger type
+          [ "${{ github.event_name }}" == "workflow_dispatch" ] && {
+            skip_pr="${{ inputs.skip-if-pr-exists }}"
+            nixpkgs_review="${{ inputs.nixpkgs-review }}"
+            cve_report="${{ inputs.cve-report }}"
+          } || {
+            skip_pr="${SKIP_IF_PR_EXISTS}"
+            nixpkgs_review="${NIXPKGS_REVIEW}"
+            cve_report="${CVE_REPORT}"
+          }
+
+          echo "packages=$matrix" >> "$GITHUB_OUTPUT"
+          echo "skip-if-pr-exists=$skip_pr" >> "$GITHUB_OUTPUT"
+          echo "nixpkgs-review=$nixpkgs_review" >> "$GITHUB_OUTPUT"
+          echo "cve-report=$cve_report" >> "$GITHUB_OUTPUT"
+          echo "nixpkgs-repo=${NIXPKGS_REPO}" >> "$GITHUB_OUTPUT"
+
+          echo "::notice::Prepared matrix with $(echo "$matrix" | jq 'length') package(s)"
+
+  update:
+    needs: prepare-matrix
+    if: ${{ needs.prepare-matrix.outputs.packages != '[""]' }}
+    permissions:
+      contents: write
+      pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJson(needs.prepare-matrix.outputs.packages) }}
+    uses: ./.github/workflows/update-package.yml
+    with:
+      update-info: ${{ matrix.package }}
+      nixpkgs-repo: ${{ needs.prepare-matrix.outputs.nixpkgs-repo }}
+      skip-if-pr-exists: ${{ fromJson(needs.prepare-matrix.outputs.skip-if-pr-exists) }}
+      nixpkgs-review: ${{ fromJson(needs.prepare-matrix.outputs.nixpkgs-review) }}
+      cve-report: ${{ fromJson(needs.prepare-matrix.outputs.cve-report) }}
+    secrets: inherit

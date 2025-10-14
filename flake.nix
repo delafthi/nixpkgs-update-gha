@@ -25,15 +25,19 @@
         "aarch64-darwin"
         "x86_64-darwin"
       ];
-      perSystem = {
-        treefmt = {
-          projectRootFile = "flake.nix";
-          programs = {
-            keep-sorted.enable = true;
-            nixfmt.enable = true;
-            prettier.enable = true;
+      perSystem =
+        { system, ... }:
+        {
+          packages.nixpkgs-update = inputs.nixpkgs-update.packages.${system}.default;
+
+          treefmt = {
+            projectRootFile = "flake.nix";
+            programs = {
+              keep-sorted.enable = true;
+              nixfmt.enable = true;
+              prettier.enable = true;
+            };
           };
         };
-      };
     };
 }

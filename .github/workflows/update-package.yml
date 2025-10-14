@@ -1,0 +1,199 @@
+name: Update Package
+on:
+  workflow_call:
+    inputs:
+      update-info:
+        description: Update info string in format "package oldVersion newVersion" or just "package" (e.g., "tflint 0.15.0 0.15.1" or "tflint")
+        required: true
+        type: string
+      nixpkgs-repo:
+        description: The nixpkgs repository to target
+        required: false
+        type: string
+        default: NixOS/nixpkgs
+      skip-if-pr-exists:
+        description: Skip update if an open PR already exists for this package
+        type: boolean
+        required: false
+        default: true
+      nixpkgs-review:
+        description: Run nixpkgs-review on the update
+        required: false
+        type: boolean
+        default: true
+      cve-report:
+        description: Generate CVE vulnerability report
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Parse update info
+        id: parse
+        run: |
+          # Extract package name from update-info (first word)
+          package=$(echo "${{ inputs.update-info }}" | awk '{print $1}')
+          echo "package=$package" >> "$GITHUB_OUTPUT"
+          echo "::notice::Updating package: $package"
+
+      - name: Check if PR exists
+        id: find-prs
+        if: ${{ inputs.skip-if-pr-exists }}
+        run: |
+          # Query open PRs for this package
+          matches=$(gh pr list --repo ${{ inputs.nixpkgs-repo }} --state open --json number,title \
+            | jq -c --arg pkg "${{ steps.parse.outputs.package }}" 'map(select(.title | test("^" + $pkg + ":"; "i")))')
+
+          count=$(jq 'length' <<<"$matches")
+          [ "$count" -gt 0 ] && {
+            numbers=$(jq -r 'map(.number)|join(", ")' <<<"$matches")
+            echo "::warning::Skipping ${{ steps.parse.outputs.package }} - existing PR(s): #$numbers"
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          } || echo "found=false" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      - name: Checkout repository
+        if: ${{ steps.find-prs.outputs.found != 'true' }}
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        if: ${{ steps.find-prs.outputs.found != 'true' }}
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Setup magic-nix-cache
+        if: ${{ steps.find-prs.outputs.found != 'true' }}
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Checkout nixpkgs
+        if: ${{ steps.find-prs.outputs.found != 'true' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.nixpkgs-repo }}
+          path: nixpkgs
+          token: ${{ secrets.GH_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup git identity and hub config
+        if: ${{ steps.find-prs.outputs.found != 'true' }}
+        working-directory: nixpkgs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Create hub config for nixpkgs-update
+          mkdir -p ~/.config
+          cat > ~/.config/hub <<EOF
+          github.com:
+          - user: github-actions[bot]
+            oauth_token: ${{ secrets.GH_TOKEN }}
+            protocol: https
+          EOF
+
+      - name: Setup upstream remote
+        if: ${{ steps.find-prs.outputs.found != 'true' }}
+        working-directory: nixpkgs
+        run: |
+          # Rename origin to upstream (nixpkgs-update expects 'upstream')
+          git remote rename origin upstream
+
+      - name: Discover versions
+        if: ${{ steps.find-prs.outputs.found != 'true' }}
+        id: discover
+        working-directory: nixpkgs
+        run: |
+          # Parse update info
+          update_info="${{ inputs.update-info }}"
+          word_count=$(echo "$update_info" | wc -w)
+
+          if [ "$word_count" -ge 3 ]; then
+            # Full spec provided: "package oldVersion newVersion" or "package oldVersion newVersion source"
+            [ "$word_count" -eq 3 ] && update_info="$update_info github.com"
+            echo "update-info=$update_info" >> "$GITHUB_OUTPUT"
+            echo "::notice::Using provided versions: $update_info"
+          else
+            # Only package name - discover versions
+            pkg=$(echo "$update_info" | awk '{print $1}')
+            
+            # Get current version
+            old_ver=$(nix eval --raw .#${pkg}.version 2>/dev/null || {
+              echo "::error::Package $pkg not found"
+              exit 1
+            })
+            
+            # Try to get new version from GitHub releases
+            new_ver=""
+            src_url=$(nix eval --raw .#${pkg}.src.gitRepoUrl 2>/dev/null || echo "")
+            
+            if [ -n "$src_url" ]; then
+              repo=$(echo "$src_url" | sed 's#https://github.com/##')
+              # Only extract tag_name if API call succeeds
+              api_response=$(gh api "repos/$repo/releases/latest" 2>&1 || echo "")
+              if echo "$api_response" | jq -e '.tag_name' >/dev/null 2>&1; then
+                new_ver=$(echo "$api_response" | jq -r '.tag_name' | sed 's/^v//')
+              fi
+            fi
+            
+            # If couldn't get from GitHub, try updateScript to discover
+            if [ -z "$new_ver" ]; then
+              if nix eval .#${pkg}.passthru.updateScript --apply 'x: true' 2>/dev/null; then
+                echo "::notice::Running updateScript for $pkg to discover new version..."
+                nix-shell maintainers/scripts/update.nix --argstr package "$pkg" || true
+                
+                # Get new version after updateScript
+                new_ver=$(nix eval --raw .#${pkg}.version 2>/dev/null || echo "$old_ver")
+                
+                # Check if version changed
+                if [ "$new_ver" == "$old_ver" ]; then
+                  echo "::notice::No new version found for $pkg (current: $old_ver)"
+                  echo "skip=true" >> "$GITHUB_OUTPUT"
+                  exit 0
+                fi
+              else
+                # No GitHub releases, no updateScript - use current version
+                # Let nixpkgs-update try with updateScript if it exists
+                new_ver="$old_ver"
+                echo "::notice::Could not discover new version, using current version $old_ver"
+              fi
+            fi
+            
+            update_info="$pkg $old_ver $new_ver github.com"
+            echo "update-info=$update_info" >> "$GITHUB_OUTPUT"
+            echo "::notice::Discovered versions: $pkg $old_ver -> $new_ver"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      - name: Run nixpkgs-update
+        if: ${{ steps.find-prs.outputs.found != 'true' && steps.discover.outputs.skip != 'true' }}
+        id: update
+        working-directory: nixpkgs
+        run: |
+          # Build nixpkgs-update flags
+          flags="--pr"
+          ${{ inputs.nixpkgs-review }} && flags="$flags --nixpkgs-review"
+          ${{ inputs.cve-report }} && flags="$flags --cve"
+
+          # Run nixpkgs-update from flake input (with --pr for automatic PR creation)
+          nix run ..#nixpkgs-update -- update $flags "${{ steps.discover.outputs.update-info }}" && {
+            echo "success=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::nixpkgs-update completed successfully"
+          } || {
+            exit_code=$?
+            echo "success=false" >> "$GITHUB_OUTPUT"
+            echo "::error::nixpkgs-update failed with exit code $exit_code"
+            exit 1
+          }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
