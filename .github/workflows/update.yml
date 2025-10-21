@@ -1,0 +1,152 @@
+name: Update packages
+on:
+  schedule:
+    # Run Tuesdays and friday at 3 AM UTC
+    - cron: "0 3 * * 2,5"
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: 'Packages to update (space-separated). Format: "foo bar baz".  Defaults to PACKAGES var.'
+        required: false
+        type: string
+      skip-if-pr-exists:
+        description: Skip if PR exists
+        type: boolean
+        required: false
+        default: true
+      nixpkgs-review-gha:
+        description: Trigger external nixpkgs-review-gha workflow after successful update
+        required: false
+        type: boolean
+        default: false
+
+# Prevent overlapping runs that could create duplicate PRs
+concurrency:
+  group: update-packages-${{ github.ref }}
+  cancel-in-progress: true
+
+# Default permissions - jobs explicitly elevate as needed
+permissions:
+  contents: read
+
+env:
+  # Configurable via repository variables
+  PACKAGES: ${{ vars.PACKAGES || '' }}
+  SKIP_IF_PR_EXISTS: ${{ vars.SKIP_IF_PR_EXISTS || 'true' }}
+  NIXPKGS_REVIEW_GHA: ${{ vars.NIXPKGS_REVIEW_GHA || 'false' }}
+  NIXPKGS_REPO: ${{ vars.NIXPKGS_REPO || '' }}
+  NIXPKGS_FORK: ${{ vars.NIXPKGS_FORK || '' }}
+  NIXPKGS_REVIEW_GHA_REPO: ${{ vars.NIXPKGS_REVIEW_GHA_REPO || '' }}
+
+jobs:
+  parse-inputs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    outputs:
+      packages: ${{ steps.parse-inputs.outputs.packages }}
+      skip-if-pr-exists: ${{ steps.parse-inputs.outputs.skip-if-pr-exists }}
+      nixpkgs-review-gha: ${{ steps.parse-inputs.outputs.nixpkgs-review-gha }}
+      nixpkgs-repo: ${{ steps.parse-inputs.outputs.nixpkgs-repo }}
+      nixpkgs-fork: ${{ steps.parse-inputs.outputs.nixpkgs-fork }}
+      nixpkgs-review-gha-repo: ${{ steps.parse-inputs.outputs.nixpkgs-review-gha-repo }}
+
+    steps:
+      - name: Parse and validate inputs
+        id: parse-inputs
+        run: |
+          if [ -z "${{ env.NIXPKGS_REPO }}" ]; then
+            echo "::error::NIXPKGS_REPO variable is required but not set"
+            exit 1
+          fi
+
+          if [ -z "${{ env.NIXPKGS_FORK }}" ]; then
+            echo "::error::NIXPKGS_FORK variable is required but not set"
+            exit 1
+          fi
+
+          packages="${{ inputs.packages || env.PACKAGES }}"
+          if [ -z "$packages" ]; then
+            echo "::error::No packages specified"
+            exit 1
+          fi
+
+          for pkg in $packages; do
+            if ! echo "$pkg" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+              echo "::error::Invalid package name: $pkg"
+              exit 1
+            fi
+          done
+
+          if [ "${{ inputs.skip-if-pr-exists }}" = "true" ]; then
+            skip_pr="true"
+          elif [ "${{ inputs.skip-if-pr-exists }}" = "false" ]; then
+            skip_pr="false"
+          else
+            [ "${{ env.SKIP_IF_PR_EXISTS }}" = "true" ] && skip_pr="true" || skip_pr="false"
+          fi
+
+          if [ "${{ inputs.nixpkgs-review-gha }}" = "true" ]; then
+            nixpkgs_review_gha="true"
+          elif [ "${{ inputs.nixpkgs-review-gha }}" = "false" ]; then
+            nixpkgs_review_gha="false"
+          else
+            [ "${{ env.NIXPKGS_REVIEW_GHA }}" = "true" ] && nixpkgs_review_gha="true" || nixpkgs_review_gha="false"
+          fi
+
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+          echo "skip-if-pr-exists=$skip_pr" >> "$GITHUB_OUTPUT"
+          echo "nixpkgs-review-gha=$nixpkgs_review_gha" >> "$GITHUB_OUTPUT"
+          echo "nixpkgs-repo=${NIXPKGS_REPO}" >> "$GITHUB_OUTPUT"
+          echo "nixpkgs-fork=${NIXPKGS_FORK}" >> "$GITHUB_OUTPUT"
+          echo "nixpkgs-review-gha-repo=${{ env.NIXPKGS_REVIEW_GHA_REPO }}" >> "$GITHUB_OUTPUT"
+
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: parse-inputs
+    permissions:
+      contents: read
+
+    outputs:
+      packages: ${{ steps.create-matrix.outputs.packages }}
+
+    steps:
+      - name: Create matrix
+        id: create-matrix
+        run: |
+          packages="${{ needs.parse-inputs.outputs.packages }}"
+
+          matrix_json=$(echo "$packages" | tr ' ' '\n' | jq -R -s -c '
+            split("\n") |
+            map(select(length > 0)) |
+            map({package: .})
+          ')
+
+          echo "packages=$matrix_json" >> "$GITHUB_OUTPUT"
+
+  update:
+    needs:
+      - prepare-matrix
+      - parse-inputs
+    if: ${{ needs.prepare-matrix.outputs.packages != '[]' }}
+    permissions:
+      contents: write
+      pull-requests: write
+    strategy:
+      fail-fast: false
+      # Limit concurrent updates to prevent API rate limiting and resource exhaustion
+      max-parallel: 3
+      matrix:
+        include: ${{ fromJson(needs.prepare-matrix.outputs.packages) }}
+    uses: ./.github/workflows/update-package.yml
+    with:
+      nixpkgs-repo: ${{ needs.parse-inputs.outputs.nixpkgs-repo }}
+      nixpkgs-fork: ${{ needs.parse-inputs.outputs.nixpkgs-fork }}
+      skip-if-pr-exists: ${{ needs.parse-inputs.outputs.skip-if-pr-exists == 'true' }}
+      nixpkgs-review-gha: ${{ needs.parse-inputs.outputs.nixpkgs-review-gha == 'true' }}
+      nixpkgs-review-gha-repo: ${{ needs.parse-inputs.outputs.nixpkgs-review-gha-repo }}
+      package: ${{ matrix.package }}
+    secrets: inherit

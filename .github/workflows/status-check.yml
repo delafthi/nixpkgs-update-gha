@@ -1,4 +1,4 @@
-name: Status Check
+name: Status check
 
 on:
   workflow_call:

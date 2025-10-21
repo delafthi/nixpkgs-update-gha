@@ -1,0 +1,286 @@
+name: Update package
+on:
+  workflow_call:
+    inputs:
+      package:
+        description: "Package to update"
+        required: true
+        type: string
+      nixpkgs-repo:
+        description: The nixpkgs repository to target (e.g., NixOS/nixpkgs)
+        required: true
+        type: string
+      nixpkgs-fork:
+        description: Your fork of nixpkgs to push changes to (falls back to NIXPKGS_FORK variable)
+        required: false
+        type: string
+        default: ""
+      skip-if-pr-exists:
+        description: Skip update if an open PR already exists for this package
+        type: boolean
+        required: false
+        default: true
+      nixpkgs-review-gha:
+        description: Trigger external nixpkgs-review-gha workflow after successful update
+        required: false
+        type: boolean
+        default: false
+      nixpkgs-review-gha-repo:
+        description: Your fork of nixpkgs-review-gha to trigger external review (e.g., "yourname/nixpkgs-review-gha")
+        required: false
+        type: string
+      nixpkgs-review-gha-workflow:
+        description: Workflow filename in nixpkgs-review-gha repo
+        required: false
+        type: string
+        default: review.yml
+
+concurrency:
+  group: update-package-${{ inputs.package }}-${{ inputs.nixpkgs-repo }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Validate configuration
+        run: |
+          if [ -z "${{ secrets.GH_TOKEN }}" ]; then
+            echo "::error::GH_TOKEN secret is required but not set"
+            exit 1
+          fi
+
+          fork="${{ inputs.nixpkgs-fork || vars.NIXPKGS_FORK }}"
+          if [ -z "$fork" ]; then
+            echo "::error::NIXPKGS_FORK must be provided via input or repository variable"
+            exit 1
+          fi
+          echo "NIXPKGS_FORK=$fork" >> "$GITHUB_ENV"
+
+          if ! echo "${{ inputs.package }}" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+            echo "::error::Invalid package name: ${{ inputs.package }}"
+            exit 1
+          fi
+
+      - name: Check if PR exists
+        id: find-prs
+        if: ${{ inputs.skip-if-pr-exists == true }}
+        run: |
+          pkg_escaped=$(echo "${{ inputs.package }}" | sed 's/[].[\\*^$()+?{}|]/\\&/g')
+
+          matches=$(gh pr list --repo ${{ inputs.nixpkgs-repo }} --state open --json number,title \
+            | jq -c --arg pkg "$pkg_escaped" 'map(select(.title | test("^" + $pkg + ":"; "i")))')
+
+          count=$(jq 'length' <<<"$matches")
+          if [ "$count" -gt 0 ]; then
+            numbers=$(jq -r 'map(.number)|join(", ")' <<<"$matches")
+            echo "::warning::Skipping ${{ inputs.package }} - existing PR(s): #$numbers"
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      - name: Checkout nixpkgs
+        if: ${{ steps.find-prs.outputs.found != 'true' }}
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.nixpkgs-repo }}
+
+      - name: Configure Git
+        if: ${{ steps.find-prs.outputs.found != 'true' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Install Nix
+        if: ${{ steps.find-prs.outputs.found != 'true' }}
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Setup Magic Nix Cache
+        if: ${{ steps.find-prs.outputs.found != 'true' }}
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Run update script
+        if: ${{ steps.find-prs.outputs.found != 'true' }}
+        id: update
+        run: |
+          commit_before=$(git rev-parse HEAD)
+
+          nix-shell maintainers/scripts/update.nix \
+            -I nixpkgs=. \
+            --argstr package ${{ inputs.package }} \
+            --argstr commit true \
+            --argstr skip-prompt true
+
+          commit_after=$(git rev-parse HEAD)
+
+          if [ "$commit_before" = "$commit_after" ]; then
+            echo "::notice::No update available for ${{ inputs.package }}"
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Updated ${{ inputs.package }}"
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+            echo "commit=$commit_after" >> "$GITHUB_OUTPUT"
+
+            # Extract commit message and body
+            commit_subject=$(git log -1 --format=%s "$commit_after")
+            commit_body=$(git log -1 --format=%b "$commit_after")
+
+            {
+              echo "commit-subject<<EOF"
+              echo "$commit_subject"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+
+            {
+              echo "commit-body<<EOF"
+              echo "$commit_body"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build updated package
+        if: ${{ steps.find-prs.outputs.found != 'true' && steps.update.outputs.updated == 'true' }}
+        id: build
+        run: |
+          commit="${{ steps.update.outputs.commit }}"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+          system=$(nix eval --impure --raw --expr 'builtins.currentSystem')
+          echo "system=$system" >> "$GITHUB_OUTPUT"
+
+          echo "::notice::Building ${{ inputs.package }} to verify update..."
+
+          # Build the updated package to catch basic build failures
+          if build_output=$(nix-build -A ${{ inputs.package }} 2>&1); then
+            echo "::notice::✓ Package built successfully on $system"
+            echo "build-status=success" >> "$GITHUB_OUTPUT"
+
+            # Extract store path (nix-build prints it to stdout)
+            store_path=$(echo "$build_output" | grep -E '^/nix/store/' | tail -1)
+            echo "store-path=$store_path" >> "$GITHUB_OUTPUT"
+
+            # Save build log (last 100 lines for PR body)
+            {
+              echo "build-log<<EOF"
+              echo "$build_output" | tail -100
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo $build_output
+            echo "::error::✗ Package build failed on $system"
+            echo "build-status=failed" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "::notice::Comprehensive multi-platform review will be performed after PR creation"
+
+      - name: Push changes and create PR
+        if: ${{ steps.find-prs.outputs.found != 'true' && steps.update.outputs.updated == 'true' && steps.build.outputs.build-status == 'success' }}
+        id: create-pr
+        run: |
+          branch="auto-update/${{ inputs.package }}"
+          title="${{ steps.update.outputs.commit-subject }}"
+          commit="${{ steps.update.outputs.commit }}"
+
+          git checkout -b "$branch"
+          git remote add fork "https://x-access-token:${GH_TOKEN}@github.com/${{ env.NIXPKGS_FORK }}.git" 2>/dev/null || \
+            git remote set-url fork "https://x-access-token:${GH_TOKEN}@github.com/${{ env.NIXPKGS_FORK }}.git"
+          git push -f fork "$branch"
+
+          # Determine base branch (master or main)
+          base_branch=$(gh api "/repos/${{ inputs.nixpkgs-repo }}" --jq '.default_branch')
+
+          # Build PR body
+          {
+            echo "Automatic update by [nixpkgs-update-gha](https://github.com/delafthi/nixpkgs-update-gha)."
+            echo ""
+
+            # Include commit body if present (often contains changelog/release notes)
+            commit_body="${{ steps.update.outputs.commit-body }}"
+            if [ -n "$commit_body" ]; then
+              echo "$commit_body"
+              echo ""
+            fi
+
+            echo "---"
+            echo ""
+            echo "## Pre-merge Checks"
+            echo ""
+
+            system="${{ steps.build.outputs.system }}"
+
+            echo "### Build Verification"
+            echo ""
+            echo ":white_check_mark: Successfully built \`${{ inputs.package }}\` on \`$system\`"
+            echo ""
+            echo "<details>"
+            echo "<summary>Build logs</summary>"
+            echo ""
+            echo '```'
+            echo "${{ steps.build.outputs.build-log }}"
+            echo '```'
+            echo ""
+            echo "**Store path:** \`${{ steps.build.outputs.store-path }}\`"
+            echo ""
+            echo "</details>"
+            echo ""
+
+            if [ -n "${{ inputs.nixpkgs-review-gha-repo }}" ] && [ "${{ inputs.nixpkgs-review-gha }}" = "true" ]; then
+              echo "### Comprehensive Review"
+              echo ""
+              echo ":hourglass_flowing_sand: Multi-platform build review will be performed by [\`nixpkgs-review-gha\`](https://github.com/${{ inputs.nixpkgs-review-gha-repo }})"
+              echo ""
+              echo "Results will be posted here once the review completes."
+            else
+              echo "### Additional Testing"
+              echo ""
+              echo ":information_source: Basic build verification completed. Consider enabling [\`nixpkgs-review-gha\`](https://github.com/Defelo/nixpkgs-review-gha) for comprehensive multi-platform testing."
+            fi
+            echo ""
+
+            echo "---"
+            echo ""
+            echo "<details>"
+            echo "<summary>Metadata</summary>"
+            echo ""
+            echo "**Commit:** [\`${commit:0:7}\`](https://github.com/${{ inputs.nixpkgs-repo }}/commit/$commit)"
+            echo "**Compare:** [Changes since $base_branch](https://github.com/${{ inputs.nixpkgs-repo }}/compare/$base_branch...$commit)"
+            echo "**Build logs:** [Workflow run #${{ github.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            echo "**System tested:** \`$system\`"
+            echo ""
+            echo "</details>"
+          } > pr-body.md
+
+          pr_url=$(gh pr create \
+            --repo "${{ inputs.nixpkgs-repo }}" \
+            --head "${{ env.NIXPKGS_FORK }}:$branch" \
+            --title "$title" \
+            --body-file pr-body.md \
+            --label "automated-update" \
+            --label "${{ inputs.package }}")
+
+          pr_number=$(echo "$pr_url" | grep -oE '[0-9]+$')
+          echo "pull-request-number=$pr_number" >> "$GITHUB_OUTPUT"
+          echo "pull-request-url=$pr_url" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      - name: Trigger nixpkgs-review-gha
+        if: ${{ steps.find-prs.outputs.found != 'true' && steps.update.outputs.updated == 'true' && steps.build.outputs.build-status == 'success' && steps.create-pr.outputs.pull-request-number != '' && inputs.nixpkgs-review-gha == true && inputs.nixpkgs-review-gha-repo != '' }}
+        run: |
+          gh workflow run "${{ inputs.nixpkgs-review-gha-workflow }}" \
+            --repo "${{ inputs.nixpkgs-review-gha-repo }}" \
+            --field pr="${{ steps.create-pr.outputs.pull-request-number }}"
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
