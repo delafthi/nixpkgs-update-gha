@@ -13,35 +13,29 @@ on:
         type: boolean
         required: false
         default: false
-
 concurrency:
   group: update-packages-${{ github.ref }}
   cancel-in-progress: true
-
 permissions:
   contents: read
-
 env:
   PACKAGES: ${{ vars.PACKAGES || '' }}
   NIXPKGS_REPO: ${{ vars.NIXPKGS_REPO || '' }}
   NIXPKGS_FORK: ${{ vars.NIXPKGS_FORK || '' }}
   NIXPKGS_REVIEW_GHA: ${{ vars.NIXPKGS_REVIEW_GHA || 'false' }}
   NIXPKGS_REVIEW_GHA_REPO: ${{ vars.NIXPKGS_REVIEW_GHA_REPO || '' }}
-
 jobs:
   parse-inputs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
-
     outputs:
       packages: ${{ steps.parse-inputs.outputs.packages }}
       nixpkgs-repo: ${{ steps.parse-inputs.outputs.nixpkgs-repo }}
       nixpkgs-fork: ${{ steps.parse-inputs.outputs.nixpkgs-fork }}
       nixpkgs-review-gha: ${{ steps.parse-inputs.outputs.nixpkgs-review-gha }}
       nixpkgs-review-gha-repo: ${{ steps.parse-inputs.outputs.nixpkgs-review-gha-repo }}
-
     steps:
       - name: Parse and validate inputs
         id: parse-inputs
@@ -95,24 +89,23 @@ jobs:
             fi
           fi
 
-          echo "packages=$packages" >> "$GITHUB_OUTPUT"
-          echo "nixpkgs-repo=${{ env.NIXPKGS_REPO }}" >> "$GITHUB_OUTPUT"
-          echo "nixpkgs-fork=${{ env.NIXPKGS_FORK }}" >> "$GITHUB_OUTPUT"
-          echo "nixpkgs-review-gha=$review_gha" >> "$GITHUB_OUTPUT"
-          echo "nixpkgs-review-gha-repo=${{ env.NIXPKGS_REVIEW_GHA_REPO }}" >> "$GITHUB_OUTPUT"
+          {
+            echo "packages=$packages"
+            echo "nixpkgs-repo=${{ env.NIXPKGS_REPO }}"
+            echo "nixpkgs-fork=${{ env.NIXPKGS_FORK }}"
+            echo "nixpkgs-review-gha=$review_gha"
+            echo "nixpkgs-review-gha-repo=${{ env.NIXPKGS_REVIEW_GHA_REPO }}"
+          } >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
-
   prepare-matrix:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: parse-inputs
     permissions:
       contents: read
-
     outputs:
       packages: ${{ steps.create-matrix.outputs.packages }}
-
     steps:
       - name: Create matrix
         id: create-matrix
@@ -133,7 +126,6 @@ jobs:
 
           echo "::notice::Created matrix with $count package(s)"
           echo "packages=$matrix_json" >> "$GITHUB_OUTPUT"
-
   update:
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -149,7 +141,6 @@ jobs:
       max-parallel: 3
       matrix:
         include: ${{ fromJson(needs.prepare-matrix.outputs.packages) }}
-
     steps:
       - name: Check if PR exists
         id: check-pr
@@ -170,14 +161,12 @@ jobs:
           echo "exists=false" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
-
       - name: Checkout nixpkgs
         if: steps.check-pr.outputs.exists == 'false'
         uses: actions/checkout@v6
         with:
           repository: ${{ needs.parse-inputs.outputs.nixpkgs-repo }}
           token: ${{ secrets.GH_TOKEN }}
-
       - name: Install Nix
         if: steps.check-pr.outputs.exists == 'false'
         uses: cachix/install-nix-action@v31
@@ -185,11 +174,9 @@ jobs:
           extra_nix_config: |
             download-buffer-size = 524288000
             experimental-features = nix-command flakes
-
       - name: Setup Magic Nix Cache
         if: steps.check-pr.outputs.exists == 'false'
         uses: DeterminateSystems/magic-nix-cache-action@main
-
       - name: Run update script
         if: steps.check-pr.outputs.exists == 'false'
         id: update
@@ -220,7 +207,6 @@ jobs:
           echo "new-version=$new_version" >> "$GITHUB_OUTPUT"
 
           echo "::notice::Updated $package: $old_version -> $new_version"
-
       - name: Get package metadata
         if: steps.check-pr.outputs.exists == 'false' && steps.update.outputs.has-changes == 'true'
         id: metadata
@@ -234,11 +220,12 @@ jobs:
           maintainers=$(nix eval --json ".#$package.meta.maintainers" 2>/dev/null | \
             jq -r '.[] | select(.github != null) | "@" + .github' | tr '\n' ' ' | sed 's/ $//' || echo "")
 
-          echo "description=$description" >> "$GITHUB_OUTPUT"
-          echo "homepage=$homepage" >> "$GITHUB_OUTPUT"
-          echo "changelog=$changelog" >> "$GITHUB_OUTPUT"
-          echo "maintainers=$maintainers" >> "$GITHUB_OUTPUT"
-
+          {
+            echo "description=$description"
+            echo "homepage=$homepage"
+            echo "changelog=$changelog"
+            echo "maintainers=$maintainers"
+          } >> "$GITHUB_OUTPUT"
       - name: Run nixpkgs-review
         if: steps.check-pr.outputs.exists == 'false' && steps.update.outputs.has-changes == 'true'
         id: review
@@ -282,10 +269,8 @@ jobs:
             echo "::notice::Found nixpkgs-review results at $review_dir"
             echo "review-dir=$review_dir" >> "$GITHUB_OUTPUT"
           fi
-
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Check build results
         if: steps.check-pr.outputs.exists == 'false' && steps.update.outputs.has-changes == 'true'
         id: check-build
@@ -325,7 +310,6 @@ jobs:
           if [ -n "$failed_packages" ]; then
             echo "::warning::Other packages failed to build: $(echo "$failed_packages" | tr '\n' ' ')"
           fi
-
       - name: Run passthru.tests
         if: steps.check-pr.outputs.exists == 'false' && steps.update.outputs.has-changes == 'true'
         id: tests
@@ -365,7 +349,6 @@ jobs:
             echo "has-tests=false" >> "$GITHUB_OUTPUT"
             echo "::notice::No passthru.tests found for $package"
           fi
-
       - name: Commit and push changes
         id: commit-push
         if: steps.check-pr.outputs.exists == 'false' && steps.update.outputs.has-changes == 'true'
@@ -374,7 +357,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           fork_owner=$(echo "${{ needs.parse-inputs.outputs.nixpkgs-fork }}" | cut -d'/' -f1)
-          fork_repo=$(echo "${{ needs.parse-inputs.outputs.nixpkgs-fork }}" | cut -d'/' -f2)
 
           if ! git remote get-url fork 2>/dev/null; then
             git remote add fork "https://x-access-token:${{ secrets.GH_TOKEN }}@github.com/${{ needs.parse-inputs.outputs.nixpkgs-fork }}.git"
@@ -392,7 +374,6 @@ jobs:
           echo "head=$fork_owner:$branch_name" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
-
       - name: Create Pull Request
         id: create-pr
         if: steps.check-pr.outputs.exists == 'false' && steps.update.outputs.has-changes == 'true'
@@ -403,7 +384,6 @@ jobs:
           changelog="${{ steps.metadata.outputs.changelog }}"
           old_version="${{ steps.update.outputs.old-version }}"
           new_version="${{ steps.update.outputs.new-version }}"
-          system="${{ steps.review.outputs.system }}"
           maintainers="${{ steps.metadata.outputs.maintainers }}"
           store_path="${{ steps.review.outputs.store-path }}"
 
@@ -519,7 +499,6 @@ jobs:
           echo "::notice::Created PR #$pr_number: $pr_url"
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
-
       - name: Trigger nixpkgs-review-gha
         if: steps.check-pr.outputs.exists == 'false' && steps.update.outputs.has-changes == 'true' && steps.create-pr.outputs.pull-request-number != '' && needs.parse-inputs.outputs.nixpkgs-review-gha == 'true'
         run: |

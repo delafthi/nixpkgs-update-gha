@@ -1,5 +1,4 @@
 name: Status Check
-
 on:
   workflow_call:
     inputs:
@@ -11,7 +10,6 @@ on:
         description: Result from the needs context
         required: true
         type: string
-
 jobs:
   status:
     runs-on: ubuntu-latest

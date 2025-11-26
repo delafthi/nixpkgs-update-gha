@@ -1,9 +1,7 @@
 name: Auto-merge PR
-
 on:
   pull_request:
     types: [labeled, unlabeled]
-
 jobs:
   auto-merge:
     runs-on: ubuntu-latest
@@ -12,16 +10,13 @@ jobs:
     concurrency:
       group: auto-merge-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
-
     permissions:
       contents: write
       pull-requests: write
-
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       MERGE_METHOD: merge
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
     steps:
       - name: Log workflow context
         run: |
@@ -30,7 +25,6 @@ jobs:
           echo "::notice::PR Number: ${PR_NUMBER}"
           echo "::notice::Label: ${{ github.event.label.name }}"
           echo "::notice::Merge Method: ${MERGE_METHOD}"
-
       - name: Validate PR exists
         run: |
           if ! gh pr view "${PR_NUMBER}" --repo "${{ github.repository }}" &>/dev/null; then
@@ -38,7 +32,6 @@ jobs:
             exit 1
           fi
           echo "::notice::Validated PR #${PR_NUMBER} exists"
-
       - name: Disable auto-merge on label removal
         if: github.event.action == 'unlabeled' && github.event.label.name == 'auto-merge'
         run: |
@@ -47,7 +40,6 @@ jobs:
             exit 1
           fi
           echo "::notice::Successfully disabled auto-merge for PR #${PR_NUMBER}"
-
       - name: Validate PR state
         if: github.event.action == 'labeled' && github.event.label.name == 'auto-merge'
         run: |
@@ -64,7 +56,6 @@ jobs:
           fi
 
           echo "::notice::PR is in valid state for auto-merge"
-
       - name: Enable auto-merge on label addition
         if: github.event.action == 'labeled' && github.event.label.name == 'auto-merge'
         run: |

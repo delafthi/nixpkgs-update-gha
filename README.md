@@ -54,22 +54,27 @@ Use **nixpkgs-update-gha** if you maintain packages that:
 **Essential steps to get started:**
 
 1. **Fork repositories**
+
    - Fork [this repository](https://github.com/delafthi/nixpkgs-update-gha/fork)
 
-2. **Create GitHub token**
+1. **Create GitHub token**
+
    - Generate a [classic token](https://github.com/settings/tokens) with `public_repo` and `workflow` scopes
    - Add it as secret `GH_TOKEN` in your fork's [Settings → Secrets and variables → Actions](../../settings/secrets/actions/new)
 
-3. **Configure variables**
+1. **Configure variables**
+
    - Go to [Settings → Secrets and variables → Actions → Variables](../../settings/variables/actions)
    - Add `PACKAGES` (e.g., `hello neovim firefox`)
    - Add `NIXPKGS_FORK` (e.g., `username/nixpkgs`)
    - Add `NIXPKGS_REPO` (e.g., `username/nixpkgs` for testing, `NixOS/nixpkgs` for production)
 
-4. **Enable workflows**
+1. **Enable workflows**
+
    - Go to the [Actions tab](../../actions) and enable GitHub Actions
 
-5. **Test manually**
+1. **Test manually**
+
    - Navigate to [Actions → Update packages](../../actions/workflows/update-packages.yml)
    - Click **Run workflow** to trigger your first update
 
@@ -93,7 +98,7 @@ For detailed configuration and troubleshooting, see the [Setup](#setup) section 
 Fork nixpkgs to have a repository where update branches will be pushed:
 
 1. Navigate to <https://github.com/NixOS/nixpkgs> and click **Fork**
-2. Note your fork's repository name (format: `username/nixpkgs`)
+1. Note your fork's repository name (format: `username/nixpkgs`)
 
 ### 2. Fork this repository
 
@@ -108,13 +113,13 @@ In your fork of nixpkgs-update-gha, go to the [Actions](../../actions) tab and e
 Create a [personal access token (classic)](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#personal-access-tokens-classic) for nixpkgs operations:
 
 1. Navigate to <https://github.com/settings/tokens> and click **Generate new token (classic)**
-2. Set a descriptive note (e.g., "nixpkgs-update-gha")
-3. Select the following scopes:
+1. Set a descriptive note (e.g., "nixpkgs-update-gha")
+1. Select the following scopes:
    - `public_repo` (to create PRs to public repositories like NixOS/nixpkgs)
    - `workflow` (if using nixpkgs-review-gha integration)
-4. Click **Generate token** and copy the token value
-5. In your fork of nixpkgs-update-gha, navigate to **Settings** → **Secrets and variables** → **Actions**
-6. [Add a new repository secret](../../settings/secrets/actions/new):
+1. Click **Generate token** and copy the token value
+1. In your fork of nixpkgs-update-gha, navigate to **Settings** → **Secrets and variables** → **Actions**
+1. [Add a new repository secret](../../settings/secrets/actions/new):
    - Name: `GH_TOKEN`
    - Value: Your generated personal access token
 
@@ -125,19 +130,23 @@ Create a [personal access token (classic)](https://docs.github.com/en/authentica
 Set the required variables for the workflow:
 
 1. In your fork of nixpkgs-update-gha, navigate to **Settings** → **Secrets and variables** → **Actions** → **Variables** tab
-2. [Create the following repository variables](../../settings/variables/actions/new):
+
+1. [Create the following repository variables](../../settings/variables/actions/new):
 
    **`PACKAGES`** (required)
+
    - Space-separated list of packages to update
    - Example: `hello neovim firefox`
    - Packages are updated using their defined `updateScript` via `maintainers/scripts/update.nix`
 
    **`NIXPKGS_FORK`** (required)
+
    - Your nixpkgs fork repository
    - Format: `username/nixpkgs`
    - Example: `octocat/nixpkgs`
 
    **`NIXPKGS_REPO`** (required)
+
    - Target repository where PRs will be created
    - Format: `owner/repository`
    - **Testing**: Set to your fork (e.g., `username/nixpkgs`) to test workflow without creating PRs on upstream
@@ -159,7 +168,7 @@ Use [crontab.guru](https://crontab.guru/) to create custom schedules.
 To integrate [nixpkgs-review-gha](https://github.com/Defelo/nixpkgs-review-gha):
 
 1. Fork and configure nixpkgs-review-gha per its documentation
-2. Add repository variables:
+1. Add repository variables:
    - `NIXPKGS_REVIEW_GHA=true`
    - `NIXPKGS_REVIEW_GHA_REPO=username/nixpkgs-review-gha`
 
@@ -176,8 +185,8 @@ Once configured, the workflow runs automatically on Tuesday and Friday at 3:00 A
 Trigger package updates manually:
 
 1. Go to [Actions → Update packages](../../actions/workflows/update-packages.yml)
-2. Click **Run workflow**
-3. Configure inputs (optional - falls back to repository variables):
+1. Click **Run workflow**
+1. Configure inputs (optional - falls back to repository variables):
    - **Packages**: Override `PACKAGES` variable
    - **Trigger external nixpkgs-review-gha workflow**: Override `NIXPKGS_REVIEW_GHA`
    - **Repository containing nixpkgs-review-gha workflow**: Override `NIXPKGS_REVIEW_GHA_REPO`
@@ -208,16 +217,16 @@ The update workflow (`.github/workflows/update-packages.yml`) runs on schedule (
 Each package update:
 
 1. **Check for existing PRs** - Skip if a PR with title `package: ...` exists
-2. **Setup environment** - Checkout nixpkgs, install Nix, setup Magic Nix Cache
-3. **Update package** - Run `maintainers/scripts/update.nix` which executes the package's `updateScript`:
+1. **Setup environment** - Checkout nixpkgs, install Nix, setup Magic Nix Cache
+1. **Update package** - Run `maintainers/scripts/update.nix` which executes the package's `updateScript`:
    - Discover latest version from upstream sources
    - Update version strings and recalculate hashes
    - Derive current and new version from the changes
-4. **Get package metadata** - Extract description, homepage, and changelog
-5. **Run nixpkgs-review wip** - Build and verify the changes
-6. **Run passthru.tests** (if available) - Execute package tests and track pass/fail results
-7. **Create PR** - Push branch to fork and create PR on upstream using `gh pr create` with r-ryantm-style formatting
-8. **Trigger external review** (optional) - If configured, trigger `review.yml` workflow in nixpkgs-review-gha repository
+1. **Get package metadata** - Extract description, homepage, and changelog
+1. **Run nixpkgs-review wip** - Build and verify the changes
+1. **Run passthru.tests** (if available) - Execute package tests and track pass/fail results
+1. **Create PR** - Push branch to fork and create PR on upstream using `gh pr create` with r-ryantm-style formatting
+1. **Trigger external review** (optional) - If configured, trigger `review.yml` workflow in nixpkgs-review-gha repository
 
 ### PR Format
 
@@ -241,19 +250,19 @@ Workflows prevent duplicate PRs by checking for existing PRs with matching packa
 
 ### Repository Variables
 
-| Variable                  | Required | Description                      | Example           |
+| Variable | Required | Description | Example |
 | ------------------------- | -------- | -------------------------------- | ----------------- |
-| `PACKAGES`                | Yes      | Space-separated list of packages | `hello neovim`    |
-| `NIXPKGS_FORK`            | Yes      | Your nixpkgs fork                | `user/nixpkgs`    |
-| `NIXPKGS_REPO`            | Yes      | Target repository for PRs        | `NixOS/nixpkgs`   |
-| `NIXPKGS_REVIEW_GHA`      | No       | Trigger external review          | `false`           |
-| `NIXPKGS_REVIEW_GHA_REPO` | No       | Your nixpkgs-review-gha fork     | `user/review-gha` |
+| `PACKAGES` | Yes | Space-separated list of packages | `hello neovim` |
+| `NIXPKGS_FORK` | Yes | Your nixpkgs fork | `user/nixpkgs` |
+| `NIXPKGS_REPO` | Yes | Target repository for PRs | `NixOS/nixpkgs` |
+| `NIXPKGS_REVIEW_GHA` | No | Trigger external review | `false` |
+| `NIXPKGS_REVIEW_GHA_REPO` | No | Your nixpkgs-review-gha fork | `user/review-gha` |
 
 ### Repository Secrets
 
-| Secret     | Required | Description                            |
+| Secret | Required | Description |
 | ---------- | -------- | -------------------------------------- |
-| `GH_TOKEN` | Yes      | GitHub token with PR/write permissions |
+| `GH_TOKEN` | Yes | GitHub token with PR/write permissions |
 
 ### Workflow Schedule
 
@@ -287,9 +296,9 @@ See [Setup](#setup) for detailed configuration instructions.
 **Solution**:
 
 1. Ensure you're using a **classic** personal access token (not fine-grained)
-2. Token must have `public_repo` scope (for creating PRs to public repositories)
-3. Token must have `workflow` scope (if using nixpkgs-review-gha integration)
-4. Regenerate token at <https://github.com/settings/tokens> and update the `GH_TOKEN` secret
+1. Token must have `public_repo` scope (for creating PRs to public repositories)
+1. Token must have `workflow` scope (if using nixpkgs-review-gha integration)
+1. Regenerate token at <https://github.com/settings/tokens> and update the `GH_TOKEN` secret
 
 ### nixpkgs-review build fails
 
@@ -318,12 +327,12 @@ Contributions are welcome! Here are some ways to contribute:
 Before contributing, please:
 
 1. Check existing [issues](../../issues) and [pull requests](../../pulls)
-2. Follow the existing code style (see [AGENTS.md](AGENTS.md) for guidelines)
-3. Test your changes:
+1. Follow the existing code style (see [AGENTS.md](AGENTS.md) for guidelines)
+1. Test your changes:
    - **Format**: `nix fmt` (runs nixfmt, prettier, keep-sorted)
    - **Validate**: `nix flake check` (checks all supported systems)
    - **Test workflows**: Use [act](https://github.com/nektos/act) or manual workflow runs
-4. Update documentation if you change workflow behavior
+1. Update documentation if you change workflow behavior
 
 ## License
 
