@@ -21,9 +21,18 @@
         treefmt = {
           projectRootFile = "flake.nix";
           programs = {
+            actionlint.enable = true;
+            deadnix.enable = true;
             keep-sorted.enable = true;
+            mdformat = {
+              enable = true;
+              plugins = ps: [
+                ps.mdformat-frontmatter
+              ];
+            };
             nixfmt.enable = true;
-            prettier.enable = true;
+            statix.enable = true;
+            yamlfmt.enable = true;
           };
         };
       };
