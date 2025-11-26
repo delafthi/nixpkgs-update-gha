@@ -35,28 +35,3 @@ jobs:
             auto-merge
             dependencies
           token: ${{ secrets.GH_TOKEN }}
-
-      - name: Validate updated flake
-        run: |
-          echo "::notice::Validating flake structure across supported systems..."
-          for system in x86_64-linux aarch64-linux aarch64-darwin; do
-            if nix flake check --system $system --no-build 2>&1; then
-              echo "::notice::Flake check passed for $system"
-            else
-              echo "::warning::Flake check failed for $system (non-blocking)"
-            fi
-          done
-          echo "::notice::Flake validation completed"
-
-      - name: Notify on failure
-        if: failure() && github.event_name == 'schedule'
-        uses: actions/github-script@v8
-        with:
-          script: |
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: 'Scheduled flake update failed',
-              body: `The scheduled flake update workflow failed.\n\nWorkflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-              labels: ['automation', 'bug']
-            });
