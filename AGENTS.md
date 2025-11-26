@@ -24,6 +24,8 @@
 - **Permissions**: Explicitly declare minimal required permissions for each job
 - **Secrets**: Use `${{ secrets.GH_TOKEN }}` for GitHub operations requiring elevated permissions
 - **Sorted lists**: Use `# keep-sorted start/end` comments for sorted lists (flake inputs, etc.)
+
 <!-- keep-sorted end -->
+
 - **Timeout**: Always set `timeout-minutes` on jobs (typically 10-30 minutes)
 - **Tools**: Use `gh` CLI for GitHub operations, `jq` for JSON processing

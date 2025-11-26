@@ -1,15 +1,12 @@
 name: Check flake
-
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   check:
     strategy:
@@ -27,21 +24,17 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-
       - name: Setup Nix
         uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Check flake validity
         run: |
           echo "::notice::Running nix flake check for ${{ matrix.system }}..."
           nix flake check --system ${{ matrix.system }}
-
   all-checks-pass:
     needs: [check]
     if: always()

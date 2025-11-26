@@ -1,14 +1,11 @@
 name: Update flake
-
 on:
   workflow_dispatch:
   schedule:
     - cron: "0 2 * * *"
-
 concurrency:
   group: update-flake
   cancel-in-progress: true
-
 jobs:
   update-flake:
     runs-on: ubuntu-latest
@@ -16,16 +13,13 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-
       - name: Setup Nix
         uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Update flake
         uses: DeterminateSystems/update-flake-lock@v27
         with:

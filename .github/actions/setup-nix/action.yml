@@ -1,6 +1,5 @@
 name: Setup Nix with caching
 description: Install Nix with optimal settings and caching for CI workflows
-
 inputs:
   github-token:
     description: GitHub token for authentication
@@ -15,7 +14,6 @@ inputs:
     required: false
     default: |
       sandbox = true
-
 runs:
   using: composite
   steps:
@@ -25,6 +23,5 @@ runs:
         extra_nix_config: ${{ inputs.extra-nix-config }}
         github_access_token: ${{ inputs.github-token }}
         nix_path: nixpkgs=channel:${{ inputs.nixpkgs-branch }}
-
     - name: Setup Magic Nix Cache
       uses: DeterminateSystems/magic-nix-cache-action@v13
