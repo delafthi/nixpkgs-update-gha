@@ -17,24 +17,33 @@
         "aarch64-darwin"
         "x86_64-darwin"
       ];
-      perSystem = {
-        treefmt = {
-          projectRootFile = "flake.nix";
-          programs = {
-            actionlint.enable = true;
-            deadnix.enable = true;
-            keep-sorted.enable = true;
-            mdformat = {
-              enable = true;
-              plugins = ps: [
-                ps.mdformat-frontmatter
+      perSystem =
+        { config, pkgs, ... }:
+        {
+          devShells = {
+            default = pkgs.mkShell {
+
+              name = "nixpkgs-update-gha";
+              inputsFrom = [
+                config.treefmt.build.devShell
+              ];
+              packages = with pkgs; [
+                nixd
               ];
             };
-            nixfmt.enable = true;
-            statix.enable = true;
-            yamlfmt.enable = true;
+          };
+          treefmt = {
+            projectRootFile = "flake.nix";
+            programs = {
+              actionlint.enable = true;
+              deadnix.enable = true;
+              keep-sorted.enable = true;
+              mdformat.enable = true;
+              nixfmt.enable = true;
+              statix.enable = true;
+              yamlfmt.enable = true;
+            };
           };
         };
-      };
     };
 }
