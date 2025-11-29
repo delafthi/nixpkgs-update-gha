@@ -38,12 +38,7 @@
               actionlint.enable = true;
               deadnix.enable = true;
               keep-sorted.enable = true;
-              mdformat = {
-                enable = true;
-                plugins = ps: [
-                  ps.mdformat-frontmatter
-                ];
-              };
+              mdformat.enable = true;
               nixfmt.enable = true;
               statix.enable = true;
               yamlfmt.enable = true;
