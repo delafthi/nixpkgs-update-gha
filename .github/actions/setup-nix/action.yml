@@ -12,8 +12,6 @@ inputs:
   extra-nix-config:
     description: Additional Nix configuration
     required: false
-    default: |
-      sandbox = true
 runs:
   using: composite
   steps:
