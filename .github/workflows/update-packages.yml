@@ -128,7 +128,7 @@ jobs:
           echo "packages=$matrix_json" >> "$GITHUB_OUTPUT"
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     needs:
       - prepare-matrix
       - parse-inputs
@@ -186,7 +186,7 @@ jobs:
           nix-shell maintainers/scripts/update.nix \
             -I nixpkgs=. \
             --argstr package "$package" \
-            --argstr skip-prompt true 2>&1 || true
+            --argstr skip-prompt true 2>&1
 
           if git diff --quiet; then
             echo "::notice::No update available for $package"
@@ -232,7 +232,7 @@ jobs:
         run: |
           package="${{ matrix.package }}"
 
-          nix run nixpkgs#nixpkgs-review -- wip --no-shell 2>&1 || true
+          nix run nixpkgs#nixpkgs-review -- wip --no-shell 2>&1
 
           system=$(nix eval --impure --raw --expr 'builtins.currentSystem')
           echo "system=$system" >> "$GITHUB_OUTPUT"
