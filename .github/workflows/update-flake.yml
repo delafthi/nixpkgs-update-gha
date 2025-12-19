@@ -2,7 +2,7 @@ name: Update flake
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 2 * * *"
+    - cron: "0 1 * * *"
 concurrency:
   group: update-flake
   cancel-in-progress: true
@@ -13,6 +13,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    # Only run if this repository is NOT a fork
+    if: github.event.repository.fork == false
     steps:
       - name: Checkout code
         uses: actions/checkout@v6

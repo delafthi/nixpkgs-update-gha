@@ -1,0 +1,36 @@
+name: Sync fork
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 2 * * *"
+concurrency:
+  group: sync-fork
+  cancel-in-progress: true
+jobs:
+  sync-fork:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    if: github.event.repository.fork == true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Sync fork with upstream
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          upstream=$(gh repo view --json parent -q '.parent.nameWithOwner')
+
+          if [ -z "$upstream" ]; then
+            echo "::error::Could not determine upstream repository"
+            exit 1
+          fi
+
+          echo "::notice::Syncing fork from upstream: $upstream"
+
+          gh repo sync --force
+
+          echo "::notice::Fork synced successfully"
