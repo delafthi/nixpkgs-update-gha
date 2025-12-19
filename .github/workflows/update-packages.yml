@@ -128,7 +128,7 @@ jobs:
           echo "packages=$matrix_json" >> "$GITHUB_OUTPUT"
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     needs:
       - prepare-matrix
       - parse-inputs
