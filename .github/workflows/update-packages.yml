@@ -207,6 +207,8 @@ jobs:
           echo "new-version=$new_version" >> "$GITHUB_OUTPUT"
 
           echo "::notice::Updated $package: $old_version -> $new_version"
+        env:
+          NIX_PATH: nixpkgs=.
       - name: Get package metadata
         if: steps.check-pr.outputs.exists == 'false' && steps.update.outputs.has-changes == 'true'
         id: metadata
