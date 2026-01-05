@@ -259,16 +259,26 @@ jobs:
             fi
           done
 
-          if [ ! -f "$review_dir/report.md" ]; then
-            echo "::warning::nixpkgs-review directory found but report.md missing at $review_dir"
+          # Check if review directory was found
+          if [ -z "$review_dir" ]; then
+            echo "::error::nixpkgs-review directory not found. Expected in:"
+            echo "  - ${HOME}/.cache/nixpkgs-review/rev-${head_hash}"
+            echo "  - ${HOME}/.cache/nixpkgs-review/rev-${head_hash}-dirty"
             exit 1
-          elif [ ! -f "$review_dir/report.json" ]; then
-            echo "::warning::nixpkgs-review directory found but report.json missing at $review_dir"
-            exit 1
-          else
-            echo "::notice::Found nixpkgs-review results at $review_dir"
-            echo "review-dir=$review_dir" >> "$GITHUB_OUTPUT"
           fi
+
+          # Check for required report files
+          if [ ! -f "$review_dir/report.md" ]; then
+            echo "::error::report.md missing in $review_dir"
+            exit 1
+          fi
+
+          if [ ! -f "$review_dir/report.json" ]; then
+            echo "::error::report.json missing in $review_dir"
+            exit 1
+          fi
+
+          echo "review-dir=$review_dir" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Check build results
