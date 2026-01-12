@@ -27,8 +27,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-      - name: Setup Nix
-        uses: ./.github/actions/setup-nix
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Check flake validity
