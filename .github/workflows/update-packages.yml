@@ -174,9 +174,6 @@ jobs:
             download-buffer-size = 524288000
             experimental-features = nix-command flakes
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Setup Magic Nix Cache
-        if: steps.check-pr.outputs.exists == 'false'
-        uses: DeterminateSystems/magic-nix-cache-action@main
       - name: Run update script
         if: steps.check-pr.outputs.exists == 'false'
         id: update
