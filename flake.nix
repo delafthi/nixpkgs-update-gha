@@ -1,10 +1,12 @@
 {
-  description = "GitHub Automations for the nixpkgs I maintain";
+  description = "Automate nix-update with GitHub Actions";
 
   inputs = {
-    flake-compat.url = "https://flakehub.com/f/edolstra/flake-compat/1.tar.gz";
+    # keep-sorted start
+    flake-parts.url = "github:hercules-ci/flake-parts";
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     treefmt-nix.url = "github:numtide/treefmt-nix";
+    # keep-sorted end
   };
 
   outputs =
@@ -22,7 +24,6 @@
         {
           devShells = {
             default = pkgs.mkShell {
-
               name = "nixpkgs-update-gha";
               inputsFrom = [
                 config.treefmt.build.devShell
