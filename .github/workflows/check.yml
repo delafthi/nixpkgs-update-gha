@@ -1,0 +1,21 @@
+name: Check
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  check-flake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v21
+      - name: Check flake validity
+        run: |
+          echo "::notice::Running nix flake check..."
+          nix flake check --keep-going --print-build-logs
