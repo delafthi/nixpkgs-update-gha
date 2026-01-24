@@ -3,9 +3,6 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "0 1 * * *"
-concurrency:
-  group: update-flake
-  cancel-in-progress: true
 jobs:
   update-flake:
     runs-on: ubuntu-latest
